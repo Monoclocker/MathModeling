@@ -4,106 +4,99 @@ from scipy.integrate import odeint
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
+time = 20
+steps = 1000
 
-# Параметры системы (определяем их символически)
-def system_params():
-    return smp.symbols("m k g t")
+def system_symbols():
+    m, k, g, t = smp.symbols("m k g t")
+    Theta = smp.Function("Theta")(t)
+    r = smp.Function("r")(t)
+    return m, k, g, t, Theta, r
 
-# Символы для угла и длины нити
-def angle_and_length_symbols(t):
-    Theta = smp.Function("Theta")(t)    # Угол отклонения маятника
-    r = smp.Function("r")(t)            # Длина нити
-    return Theta, r
+def lagrangian(m, g, k, t, Theta, r):
+    x = (1 + r) * smp.cos(Theta)
+    y = -(1 + r) * smp.sin(Theta)
 
-# Производные для угла и длины
-def angle_and_length_diffs(Theta, r, t):
+    T = 0.5 * m * (smp.diff(x, t) ** 2 + smp.diff(y, t) ** 2)
+    V = m * g * y + 0.5 * k * r ** 2
+    return T - V, x, y
+
+def lagrange_equations(L, Theta, r, t):
     Theta_d = smp.diff(Theta, t)
     Theta_dd = smp.diff(Theta_d, t)
     r_d = smp.diff(r, t)
     r_dd = smp.diff(r_d, t)
-    return Theta_d, Theta_dd, r_d, r_dd
 
-# Определение координат груза
-def coordinates_definition(Theta, r):
-    x = (1 + r) * smp.cos(Theta)
-    y = -(1 + r) * smp.sin(Theta)
-    return x, y
-
-def lagranjian(m, t, g, k, r, x, y):
-    T = 0.5 * m * (smp.diff(x, t) ** 2 + smp.diff(y, t) ** 2)
-    V = m * g * y + 0.5 * k * r ** 2
-    L = T - V
-    return L
-
-def angle_movement(Theta, Theta_d, r, r_d, L, t):
     LE_Theta = smp.diff(L, Theta) - smp.diff(smp.diff(L, Theta_d), t)
     LE_r = smp.diff(L, r) - smp.diff(smp.diff(L, r_d), t)
-    return LE_Theta, LE_r
 
-# Решаем уравнения относительно вторых производных
-def second_diffs_solution(LE_Theta, LE_r, Theta_dd, r_dd):
     return smp.solve([LE_Theta, LE_r], (Theta_dd, r_dd))
 
-# Функции для численного решения
-def numeric_solution(m, k, g, Theta, r, Theta_d, r_d, sols, Theta_dd, r_dd):
+def lambdified_functions(m, k, g, Theta, r, Theta_d, r_d, sols, Theta_dd, r_dd):
     dw_dt = smp.lambdify((m, k, g, Theta, r, Theta_d, r_d), sols[Theta_dd])
     dv_dt = smp.lambdify((m, k, g, Theta, r, Theta_d, r_d), sols[r_dd])
     return dw_dt, dv_dt
 
-# Система дифференциальных уравнений
-def dsdt(S, t, m_val, k_val, g_val, dw_dt, dv_dt):
+def dsdt(S, t, m, k, g, dw_dt, dv_dt):
     Theta, omega, r, v = S
     return [
         omega,
-        dw_dt(m_val, k_val, g_val, Theta, r, omega, v),
+        dw_dt(m, k, g, Theta, r, omega, v),
         v,
-        dv_dt(m_val, k_val, g_val, Theta, r, omega, v)
+        dv_dt(m, k, g, Theta, r, omega, v)
     ]
 
 def show():
-    # Начальные условия и параметры
-    t_vals = np.linspace(0, 20, 1000)
+    t_vals = np.linspace(0, time, steps)
     initial_conditions = [np.pi / 2, 1, 1, 7]
     m_val, k_val, g_val = 1, 10, 9.81
 
-    m, k, g, t = system_params()
-    Theta, r = angle_and_length_symbols(t)
-    Theta_d, Theta_dd, r_d, r_dd = angle_and_length_diffs(Theta, r, t)
-    x, y = coordinates_definition(Theta, r)
-    L = lagranjian(m, t, g, k, r, x, y)
-    LE_Theta, LE_r = angle_movement(Theta, Theta_d, r, r_d, L, t)
-    sols = second_diffs_solution(LE_Theta, LE_r, Theta_dd, r_dd)
 
-    dw_dt, dv_dt = numeric_solution(m, k, g, Theta, r, Theta_d, r_d, sols, Theta_dd, r_dd)
+    m, k, g, t, Theta, r = system_symbols()
+    L, x, y = lagrangian(m, g, k, t, Theta, r)
+    Theta_d, Theta_dd, r_d, r_dd = (smp.diff(Theta, t), smp.diff(smp.diff(Theta, t), t),
+                                    smp.diff(r, t), smp.diff(
+                                        smp.diff(r, t), t))
+    sols = lagrange_equations(L, Theta, r, t)
+    dw_dt, dv_dt = lambdified_functions(m, k, g, Theta, r, Theta_d, r_d, sols, Theta_dd, r_dd)
 
-    # Решение уравнений
     solution = odeint(dsdt, y0=initial_conditions, t=t_vals, args=(m_val, k_val, g_val, dw_dt, dv_dt))
 
-    # Вычисляем координаты груза на основе решения
     x_vals = (1 + solution[:, 2]) * np.cos(solution[:, 0])
     y_vals = -(1 + solution[:, 2]) * np.sin(solution[:, 0])
 
-    # Анимация маятника
-    fig, ax = plt.subplots(figsize=(8, 8))
+    fig = plt.figure(figsize=(8, 6))
+
+    ax = plt.subplot2grid((4, 2), (0, 0), colspan=2, rowspan=2)
     ax.set_xlim(-10, 10)
     ax.set_ylim(-10, 10)
     ax.grid()
 
-    # Нить и груз
-    ln, = plt.plot([], [], 'k-', lw=2)
-    mass, = plt.plot([], [], 'gs', markersize=10)
-    circle = plt.Circle((0, 0), np.max(np.sqrt(x_vals ** 2 + y_vals ** 2)), color='blue', fill=False, linestyle='--')
-    ax.add_artist(circle)
+    ax2 = plt.subplot2grid((4, 2), (2, 0), colspan=1, rowspan=2)
+    ax2.plot(t_vals, x_vals, 'r')
+    ax2.set_title("Отклонения по X", loc="center")
+
+    ax3 = plt.subplot2grid((4, 2), (2, 1), colspan=1, rowspan=2)
+    ax3.plot(t_vals, y_vals, 'g')
+    ax3.set_title("Отклонения по Y", loc="center")
+
+    ln, = ax.plot([], [], 'k-', lw=2)
+    mass, = ax.plot([], [], 'gs', markersize=10)
+
+    def init():
+        ln.set_data([], [])
+        mass.set_data([], [])
+        return ln, mass
 
     def animate(i):
-        ln.set_data([0, x_vals[i]], [0, y_vals[i]])  # Нить
-        mass.set_data([x_vals[i]], [y_vals[i]])  # Груз как точка
+        ln.set_data([0, x_vals[i]], [0, y_vals[i]])
+        mass.set_data([x_vals[i]], [y_vals[i]])
+        return ln, mass
 
-    ani = animation.FuncAnimation(fig, animate, frames=500, interval=1)
+    interval = (time / steps) * 1000
+
+    ani = animation.FuncAnimation(fig, animate, frames=steps, init_func=init, interval=interval, blit=True)
     plt.show()
 
-def main():
-    show()
-
 if __name__ == '__main__':
-    main()
+    show()
