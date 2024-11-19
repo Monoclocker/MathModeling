@@ -5,7 +5,7 @@ import numpy as np
 x0 = 1
 v0 = 0
 omega = 1.0
-gamma = 0.1
+gamma = -0.1
 dt = 0.01
 max_time = 20
 time = np.arange(0, max_time+dt, dt)
