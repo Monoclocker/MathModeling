@@ -2,107 +2,108 @@ import math
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-from lab2.main import omega
+# Константы физики и начальные параметры
+G = 9.8
+HT = 0.1
+BALL_RADIUS = 1
+X_MIN, X_MAX = -120, 120
 
-# Начальные параметры мяча и физики
-g = 9.8
-x0, y0 = 0, 0      # Начальные координаты мяча
-U0, V0 = 20, -20   # Начальные скорости мяча
-ht = 0.1           # Шаг по времени
-ball_radius = 1    # Радиус мяча
+# Параметры синусоид
+SIN_PARAMS = {
+    "lower": {"A": 15, "omega": 0.1, "phi": 15, "D": -50},
+    "upper": {"A": 15, "omega": 0.3, "phi": 25, "D": 50}
+}
 
-x_min, x_max = -120, 120   # Координаты вертикальных линий-ограничителей
-A1 = 15
-omega1 = 0.1
-phi1 = 15
-D1 = -50
+# Начальные координаты и скорости мяча
+INIT_PARAMS = {"x": 0, "y": 0, "U": 20, "V": -20}
 
-A2 = 15
-omega2 = 0.3
-phi2 = 25
-D2 = 50
 
 def calculate_sin(x, A, omega, phi, D):
+    """Вычисляет значение синусоиды в точке x."""
     return A * math.sin(omega * x + phi) + D
 
 
 def calculate_normal(x, A, omega, phi, D):
-    # Вычисление нормали синусоиды
+    """Вычисляет нормаль к синусоиде в точке x."""
     dy_dx = A * omega * math.cos(omega * x + phi)
     norm = math.sqrt(dy_dx ** 2 + 1)
     return -dy_dx / norm, 1 / norm
 
 
-def get_pos():
+def update_velocity(U, V, nx, ny):
+    """Обновляет скорость после столкновения."""
+    dot_product = U * nx + V * ny
+    return U - 2 * dot_product * nx, V - 2 * dot_product * ny
+
+
+def get_pos(x0, y0, U0, V0):
+    """Генератор позиций мяча."""
     x, y, U, V = x0, y0, U0, V0
 
     while True:
-        x_new = x + U * ht
-        y_new = y + V * ht - 0.5 * g * ht ** 2  # Учет ускорения свободного падения
+        x_new = x + U * HT
+        y_new = y + V * HT - 0.5 * G * HT ** 2
+        V -= G * HT
 
-        V -= g * ht  # Обновляем скорость по вертикали
-
-        # Проверка столкновения с боковыми границами
-        if x_new <= x_min or x_new >= x_max:
+        # Проверка столкновений
+        if x_new <= X_MIN or x_new >= X_MAX:
             U = -U
 
-        # Проверка столкновения с нижней синусоидой
-        elif y_new <= calculate_sin(x_new, A1, omega1, phi1, D1):
-            nx, ny = calculate_normal(x_new, A1, omega1, phi1, D1)
-            U, V = U - 2 * (U * nx + V * ny) * nx, V - 2 * (U * nx + V * ny) * ny
-            y_new = calculate_sin(x_new, A1, omega1, phi1, D1)  # Коррекция позиции
+        for boundary, params in SIN_PARAMS.items():
+            A, omega, phi, D = params.values()
+            sin_y = calculate_sin(x_new, A, omega, phi, D)
+            if (boundary == "lower" and y_new <= sin_y) or (boundary == "upper" and y_new >= sin_y):
+                nx, ny = calculate_normal(x_new, A, omega, phi, D)
+                U, V = update_velocity(U, V, nx, ny)
+                y_new = sin_y
+                break
 
-        # Проверка столкновения с верхней синусоидой
-        elif y_new >= calculate_sin(x_new, A2, omega2, phi2, D2):
-            nx, ny = calculate_normal(x_new, A2, omega2, phi2, D2)
-            U, V = U - 2 * (U * nx + V * ny) * nx, V - 2 * (U * nx + V * ny) * ny
-            y_new = calculate_sin(x_new, A2, omega2, phi2, D2)
-
-        # Обновляем позицию
         x, y = x_new, y_new
-
         yield x, y
 
-# Инициализация графики
-def init():
-    ax.set_xlim(-150, 150)
-    ax.set_ylim(-150, 150)
 
-    # Рисуем боковые границы как вертикальные линии
-    ax.axvline(x_min, color="red")
-    ax.axvline(x_max, color="red")
+class AnimationHandler:
+    def __init__(self):
+        self.fig, self.ax = plt.subplots()
+        self.ball = plt.Circle((INIT_PARAMS["x"], INIT_PARAMS["y"]), BALL_RADIUS, color='green')
+        self.init_graphics()
 
-    x_sin_low = [x for x in range(-150, 150)]
-    y_sin_low = [calculate_sin(x, A1, omega1, phi1, D1) for x in x_sin_low]
-    ax.plot(x_sin_low, y_sin_low, color="blue")
+    def init_graphics(self):
+        """Инициализация графики."""
+        self.fig.patch.set_facecolor('white')
+        self.ax.set_facecolor("white")
+        self.ax.set_aspect('equal')
+        self.ax.set_xlim(-150, 150)
+        self.ax.set_ylim(-150, 150)
 
-    x_sin_high = [x for x in range(-150, 150)]
-    y_sin_high = [calculate_sin(x, A2, omega2, phi2, D2) for x in x_sin_high]
-    ax.plot(x_sin_high, y_sin_high, color="blue")
+        # Границы и синусоиды
+        self.ax.axvline(X_MIN, color="red")
+        self.ax.axvline(X_MAX, color="red")
 
-    # Инициализация мяча
-    ball.set_center((x0, y0))
-    return ball
+        for params in SIN_PARAMS.values():
+            x_values = range(-150, 150)
+            y_values = [calculate_sin(x, *params.values()) for x in x_values]
+            self.ax.plot(x_values, y_values, color="blue")
 
-# Анимация
-def animate(pos):
-    x, y = pos
-    ball.set_center((x, y))  # Обновление только положения мяча
-    return ball
+        self.ax.add_patch(self.ball)
 
-# Настройка графика
-fig, ax = plt.subplots()
-fig.patch.set_facecolor('white')
-ax.set_facecolor("white")
-ax.set_aspect('equal')
+    def update_ball(self, pos):
+        """Обновление позиции мяча."""
+        x, y = pos
+        self.ball.set_center((x, y))
+        return self.ball
 
-# Мяч
-ball = plt.Circle((x0, y0), ball_radius, color='green')
-ax.add_patch(ball)
+    def run(self):
+        """Запуск анимации."""
+        ani = animation.FuncAnimation(
+            self.fig,
+            self.update_ball,
+            get_pos(INIT_PARAMS["x"], INIT_PARAMS["y"], INIT_PARAMS["U"], INIT_PARAMS["V"]),
+            interval=30,
+            repeat=False
+        )
+        plt.show()
 
-# Настройки анимации
-interval = 30
-ani = animation.FuncAnimation(fig, animate, get_pos, interval=interval, repeat=False, init_func=init)
 
-# Показ графика
-plt.show()
+if __name__ == '__main__':
+    AnimationHandler().run()
