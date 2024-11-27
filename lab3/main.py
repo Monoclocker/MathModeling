@@ -1,59 +1,97 @@
-from math import sin, cos
 import numpy as np
-from scipy.integrate import odeint
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+from matplotlib.animation import FuncAnimation
 
-g = 9.8
-leng = 1.0
-b_const = 0.2
+# Параметры
+g = 9.81  # Ускорение свободного падения, м/с^2
 
+def compute_force(x, y, L, k):
+    """
+    Вычисляет силы и ускорения с учетом растяжения нити.
+    """
+    r = np.sqrt(x**2 + y**2)  # Расстояние от точки подвеса
+    if r > L:  # Если нить растянута
+        tension_force = k * (r - L)  # Пропорционально растягиванию
+        ax = -tension_force * x / r
+        ay = -tension_force * y / r - g  # Учитываем гравитацию
+    else:  # Если нить не растянута
+        ax = 0
+        ay = -g  # Только гравитация
+    return ax, ay
 
-# no decay case:
-def pendulum_equations1(w, t, l):
-    th, v = w
-    dth = v
-    dv = - g / l * sin(th)
-    return dth, dv
+def simulate_pendulum_bouncing(x0, y0, vx0, vy0, L, k, T, dt):
+    """
+    Симуляция движения маятника с отскоками.
+    """
+    times = np.arange(0, T, dt)
+    x, y = np.zeros(len(times)), np.zeros(len(times))
+    vx, vy = np.zeros(len(times)), np.zeros(len(times))
+    x[0], y[0], vx[0], vy[0] = x0, y0, vx0, vy0
 
+    for i in range(1, len(times)):
+        ax, ay = compute_force(x[i-1], y[i-1], L, k)
+        vx[i] = vx[i-1] + ax * dt
+        vy[i] = vy[i-1] + ay * dt
+        x[i] = x[i-1] + vx[i] * dt
+        y[i] = y[i-1] + vy[i] * dt
 
-# the decay exist case:
-def pendulum_equations2(w, t, l, b):
-    th, v = w
-    dth = v
-    dv = -b / l * v - g / l * sin(th)
-    return dth, dv
+        # Если маятник достигает максимального растяжения нити
+        r = np.sqrt(x[i]**2 + y[i]**2)
+        if r > L:
+            # Ограничиваем длину нити
+            x[i] = x[i] * L / r
+            y[i] = y[i] * L / r
+            # Вычисляем радиальную скорость и инвертируем её для имитации отскока
+            v_radial = (vx[i] * x[i] + vy[i] * y[i]) / L  # Составляющая вдоль радиуса
+            vx[i] -= 2 * v_radial * x[i] / L
+            vy[i] -= 2 * v_radial * y[i] / L
 
+    return times, x, y
 
-t = np.arange(0, 20, 0.1)
-# track = odeint(pendulum_equations1, (1.0, 0), t, args=(leng,))
-track = odeint(pendulum_equations2, (1.0, 0), t, args=(leng, b_const))
-xdata = [leng * sin(track[i, 0]) for i in range(len(track))]
-ydata = [-leng * cos(track[i, 0]) for i in range(len(track))]
+def visualize_pendulum_bouncing(times, x, y, L):
+    """
+    Визуализация движения маятника с отскоками.
+    """
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_xlim(-L - 1, L + 1)
+    ax.set_ylim(-L - 1, L + 1)
+    ax.set_aspect('equal')
+    ax.set_title("Маятник с отскоками и траекторией")
+    ax.set_xlabel("Координата x")
+    ax.set_ylabel("Координата y")
 
-fig, ax = plt.subplots()
-ax.grid()
-line, = ax.plot([], [], 'o-', lw=2)
-time_template = 'time = %.1fs'
-time_text = ax.text(0.05, 0.9, '', transform=ax.transAxes)
+    # Линия маятника и его траектория
+    line, = ax.plot([], [], 'o-', lw=2)
+    trajectory, = ax.plot([], [], 'g-', lw=1.5)
 
+    def update(frame):
+        # Обновляем положение маятника
+        line.set_data([0, x[frame]], [0, y[frame]])
+        # Обновляем траекторию
+        trajectory.set_data(x[:frame+1], y[:frame+1])
+        return line, trajectory
 
-def init():
-    ax.set_xlim(-2, 2)
-    ax.set_ylim(-2, 2)
-    time_text.set_text('')
-    return line, time_text
+    ani = FuncAnimation(fig, update, frames=len(times), interval=20, blit=True)
+    plt.grid()
+    plt.show()
 
+# Основная программа
+if __name__ == "__main__":
+    # Начальные параметры
+    L = 2 # Длина нити
+    x0, y0 = -0.9, -1  # Начальная координата
 
-def update(i):
-    newx = [0, xdata[i]]
-    newy = [0, ydata[i]]
-    line.set_data(newx, newy)
-    time_text.set_text(time_template % (0.1 * i))
-    return line, time_text
+    if L < (x0 ** 2 + y0 ** 2):
+        print("Некорректно заданы начальные координаты маятника")
+        exit(1)
 
+    vx0, vy0 = 0.0, 2.5  # Начальная скорость
+    k = 8.0  # Коэффициент упругости
+    T = 30.0  # Время моделирования
+    dt = 0.01  # Шаг времени
 
-ani = animation.FuncAnimation(fig, update, range(1, len(xdata)), init_func=init, interval=10)
-# ani.save('single_pendulum_decay.gif', writer='imagemagick', fps=100)
-# ani.save('single_pendulum_nodecay.gif', writer='imagemagick', fps=100)
-plt.show()
+    # Симуляция
+    times, x, y = simulate_pendulum_bouncing(x0, y0, vx0, vy0, L, k, T, dt)
+
+    # Визуализация
+    visualize_pendulum_bouncing(times, x, y, L)
